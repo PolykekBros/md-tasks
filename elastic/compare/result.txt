@@ -1,0 +1,31 @@
+=========================================
+Components of the Elastic Constant Tensor
+=========================================
+Elastic Constant C11all = 151.424479260928 GPa
+Elastic Constant C22all = 151.424479243116 GPa
+Elastic Constant C33all = 151.424479259256 GPa
+Elastic Constant C12all = 76.4220842885731 GPa
+Elastic Constant C13all = 76.4220842927218 GPa
+Elastic Constant C23all = 76.422084287796 GPa
+Elastic Constant C44all = 56.4493368740166 GPa
+Elastic Constant C55all = 56.449336747293 GPa
+Elastic Constant C66all = 56.4493368295717 GPa
+Elastic Constant C14all = 1.67888170233176e-08 GPa
+Elastic Constant C15all = 6.03985516503302e-09 GPa
+Elastic Constant C16all = 1.23906445396031e-08 GPa
+Elastic Constant C24all = 1.61388460925384e-09 GPa
+Elastic Constant C25all = 2.0680267887205e-08 GPa
+Elastic Constant C26all = 1.9984448118316e-08 GPa
+Elastic Constant C34all = 1.43877523266973e-08 GPa
+Elastic Constant C35all = -4.0155308627845e-09 GPa
+Elastic Constant C36all = -3.5059542506582e-08 GPa
+Elastic Constant C45all = 1.32197637760647e-07 GPa
+Elastic Constant C46all = 8.49326445756219e-08 GPa
+Elastic Constant C56all = 4.96311051379888e-08 GPa
+=========================================
+Average properties for a cubic crystal
+=========================================
+Bulk Modulus = 101.422882611276 GPa
+Shear Modulus 1 = 56.4493368169604 GPa
+Shear Modulus 2 = 37.501197482368 GPa
+Poisson Ratio = 0.335410300251886

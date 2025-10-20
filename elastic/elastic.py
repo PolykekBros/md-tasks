@@ -10,16 +10,24 @@ def extract_pressure(lmp):
     return {key: lmp.get_thermo(key) for key in PRESSURE_COMPONENTS}
 
 
+def setup_potential(lmp, dmax):
+    lmp.commands_string(f"""
+        pair_style    sw
+        pair_coeff    * * Si.sw Si
+        neighbor      1.0 nsq
+        neigh_modify  once no every 1 delay 0 check yes
+        min_style     cg
+        min_modify    dmax {dmax} line quadratic
+        thermo		  1
+        thermo_style  custom step temp pe press pxx pyy pzz pxy pxz pyz lx ly lz vol
+        thermo_modify norm no
+    """)
+
+
 def calculate_elastic_constants_lammps_api():
-    """
-    Calculates the elastic constant tensor for a crystal using the LAMMPS Python API,
-    following the logic of the provided in.elastic, init.mod, potential.mod, and displace.mod files.
-    """
     up = 1.0e-6
     atomjiggle = 1.0e-5
-    units_style = "metal"
     cfac = 1.0e-4
-    cunits = "GPa"
     etol = 0.0
     ftol = 1.0e-10
     maxiter = 100
@@ -28,39 +36,19 @@ def calculate_elastic_constants_lammps_api():
     a = 5.43
     lmp = lammps()
     lmp.commands_string(f"""
-        variable up equal {up}
-        variable atomjiggle equal {atomjiggle}
-        units		{units_style}
-        variable cfac equal {cfac}
-        variable cunits string {cunits}
-        variable etol equal {etol} 
-        variable ftol equal {ftol}
-        variable maxiter equal {maxiter}
-        variable maxeval equal {maxeval}
-        variable dmax equal {dmax}
-        variable a equal {a}        
-        boundary	p p p
-        lattice         diamond $a
-        region		box prism 0 2.0 0 3.0 0 4.0 0.0 0.0 0.0
-        create_box	1 box
-        create_atoms	1 box
-        mass 1 1.0e-20
+        units        metal
+        boundary     p p p
+        lattice      diamond {a}
+        region       box prism 0 2.0 0 3.0 0 4.0 0.0 0.0 0.0
+        create_box   1 box
+        create_atoms 1 box
+        mass         1 1.0e-20
     """)
-    lmp.commands_string(f"""
-        pair_style	sw
-        pair_coeff * * Si.sw Si
-        neighbor 1.0 nsq
-        neigh_modify once no every 1 delay 0 check yes
-        min_style	     cg
-        min_modify	     dmax ${{dmax}} line quadratic
-        thermo		1
-        thermo_style custom step temp pe press pxx pyy pzz pxy pxz pyz lx ly lz vol
-        thermo_modify norm no
-    """)
+    setup_potential(lmp, dmax)
     print("--- 1. Initial State Minimization ---")
     lmp.commands_string(f"""
         fix 3 all box/relax  aniso 0.0
-        minimize ${{etol}} ${{ftol}} ${{maxiter}} ${{maxeval}}
+        minimize {etol} {ftol} {maxiter} {maxeval}
         unfix 3
     """)
     pressure_0 = extract_pressure(lmp)
@@ -91,8 +79,8 @@ def calculate_elastic_constants_lammps_api():
             clear
             box tilt large
             read_restart restart.equil
-            include potential.mod
         """)
+        setup_potential(lmp, dmax)
         print(f"  Negative deformation ($\epsilon_{{Voigt}} = -{up}$)")
         delta = -up * len0
         deltaxy = -up * xy
@@ -125,8 +113,8 @@ def calculate_elastic_constants_lammps_api():
             clear
             box tilt large
             read_restart restart.equil
-            include potential.mod
         """)
+        setup_potential(lmp, dmax)
         delta = up * len0
         deltaxy = up * xy
         deltaxz = up * xz
@@ -190,21 +178,21 @@ def calculate_elastic_constants_lammps_api():
     print("\n=========================================")
     print("Components of the Elastic Constant Tensor")
     print("=========================================")
-    print(f"Elastic Constant C11all = {C11all:.4f} {cunits}")
-    print(f"Elastic Constant C22all = {C22all:.4f} {cunits}")
-    print(f"Elastic Constant C33all = {C33all:.4f} {cunits}")
-    print(f"Elastic Constant C12all = {C12all:.4f} {cunits}")
-    print(f"Elastic Constant C13all = {C13all:.4f} {cunits}")
-    print(f"Elastic Constant C23all = {C23all:.4f} {cunits}")
-    print(f"Elastic Constant C44all = {C44all:.4f} {cunits}")
-    print(f"Elastic Constant C55all = {C55all:.4f} {cunits}")
-    print(f"Elastic Constant C66all = {C66all:.4f} {cunits}")
+    print(f"Elastic Constant C11all = {C11all:.4f}")
+    print(f"Elastic Constant C22all = {C22all:.4f}")
+    print(f"Elastic Constant C33all = {C33all:.4f}")
+    print(f"Elastic Constant C12all = {C12all:.4f}")
+    print(f"Elastic Constant C13all = {C13all:.4f}")
+    print(f"Elastic Constant C23all = {C23all:.4f}")
+    print(f"Elastic Constant C44all = {C44all:.4f}")
+    print(f"Elastic Constant C55all = {C55all:.4f}")
+    print(f"Elastic Constant C66all = {C66all:.4f}")
     print("\n=========================================")
     print("Average properties for a cubic crystal")
     print("=========================================")
-    print(f"Bulk Modulus = {bulkmodulus:.4f} {cunits}")
-    print(f"Shear Modulus 1 = {shearmodulus1:.4f} {cunits}")
-    print(f"Shear Modulus 2 = {shearmodulus2:.4f} {cunits}")
+    print(f"Bulk Modulus = {bulkmodulus:.4f}")
+    print(f"Shear Modulus 1 = {shearmodulus1:.4f}")
+    print(f"Shear Modulus 2 = {shearmodulus2:.4f}")
     print(f"Poisson Ratio = {poissonratio:.4f}")
     print(
         "\n(Note: For Stillinger-Weber silicon, analytical results are C11=151.4 GPa, C12=76.4 GPa, C44=56.4 GPa) [cite: 27]"
