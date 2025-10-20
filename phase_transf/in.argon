@@ -5,10 +5,9 @@ boundary        p p p
 atom_style      atomic 
 
 # --- Atom Information ---
-lattice         fcc 10.0
-region          box block 0 20 0 20 0 20
+region          box block 0 80 0 80 0 80
 create_box      1 box
-create_atoms    1 box
+create_atoms    1 random 200 12345 NULL 
 mass            1 39.95 
 
 # --- Lennard-Jones Potential ---
@@ -16,40 +15,25 @@ pair_style      lj/cut 2.5
 # Argon: epsilon=0.01032, sigma=3.405
 pair_coeff      1 1 0.01032 3.405 2.5
 minimize 1.0e-4 1.0e-6 100 1000
-velocity all create 120.0 4928459 rot yes dist gaussian
+velocity all create 1e-6 4928459 rot yes dist gaussian
 
 # --- Neighbor list ---
 neighbor        2.0 bin
 
-thermo 1000
+timestep 0.001
+thermo 10000
 thermo_style custom step pe etotal press temp
 
-print "Starting Equilibration at T* = 120 and P* = 1.0"
-
-fix           1 all npt temp 120.0 120.0 100.0 iso 1.0 1.0 1000.0
-
-timestep      0.001
-run           100000
+# --------------------- STAGE 1: EQUILIBRATION ---------------------
+fix 1 all nvt temp 1e-6 120.0 1000.0
+run 10000000
 
 # --------------------- STAGE 2: COOLING (Freezing) ---------------------
-print "Starting Isobaric Cooling from T* = 120 to T* = 70"
 
-# Re-run the NPT fix, but now ramp the temperature
-unfix         1 
-fix           1 all npt temp 120.0 70.0 100.0 iso 1.0 1.0 1000.0
-
-variable      T_cool equal "v_T_liquid + v_dT*step"
-fix           2 all npt temp 120.0 70 100.0 iso 1.0 1.0 1000.0
-
-# Run the cooling simulation
-run           200000
-
-# --------------------- FINAL CLEANUP ---------------------
-unfix         1
-unfix         2
-
+unfix 1
+fix   1 all nvt temp 120.0 50.0 1000.0
 
 # --- Simulation Settings ---
 dump during all atom 1000 dump.during
 
-print "Simulation Complete. Analyze traj.lammpstrj, density, and Q6_avg."
+run 10000000
