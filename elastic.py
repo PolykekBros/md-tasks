@@ -2,6 +2,14 @@ import numpy as np
 from lammps import lammps
 
 
+PRESSURE_COMPONENTS = ["pxx", "pyy", "pzz", "pyz", "pxz", "pxy"]
+BOX_COMPONENTS = ["lx", "ly", "lz"]
+
+
+def extract_pressure(lmp):
+    return {key: lmp.get_thermo(key) for key in PRESSURE_COMPONENTS}
+
+
 def calculate_elastic_constants_lammps_api():
     """
     Calculates the elastic constant tensor for a crystal using the LAMMPS Python API,
@@ -55,13 +63,12 @@ def calculate_elastic_constants_lammps_api():
         minimize ${{etol}} ${{ftol}} ${{maxiter}} ${{maxeval}}
         unfix 3
     """)
-    pressure_components = ["pxx", "pyy", "pzz", "pyz", "pxz", "pxy"]
-    pressure_0 = {key: lmp.extract_variable(key, 0, 1) for key in pressure_components}
-    lx0 = lmp.ex("lx0", 0, 1)
-    ly0 = lmp.extract_variable("ly0", 0, 1)
-    lz0 = lmp.extract_variable("lz0", 0, 1)
-    lmp.commands("write_restart restart.equil")
-    lmp.commands(
+    pressure_0 = extract_pressure(lmp)
+    print(pressure_0)
+    box_dims = {key: lmp.get_thermo(key) for key in BOX_COMPONENTS}
+    print(box_dims)
+    lmp.command("write_restart restart.equil")
+    lmp.command(
         f"displace_atoms all random {atomjiggle} {atomjiggle} {atomjiggle} 87287 units box"
     )
     C_neg = {i: np.zeros(6) for i in range(1, 7)}
@@ -69,17 +76,18 @@ def calculate_elastic_constants_lammps_api():
     for dir_val in range(1, 7):
         print(f"\n--- 2. Perturbation Cycle for dir={dir_val} ---")
         if dir_val == 1:
-            len0 = lx0
+            len0 = box_dims["lx"]
         elif dir_val == 2:
-            len0 = ly0
+            len0 = box_dims["ly"]
         elif dir_val == 3 or dir_val == 4 or dir_val == 5:
-            len0 = lz0
+            len0 = box_dims["lz"]
         elif dir_val == 6:
-            len0 = ly0
-        xy = lmp.extract_box()[2][0]
-        xz = lmp.extract_box()[2][1]
-        yz = lmp.extract_box()[2][2]
-        lmp.commands("""
+            len0 = box_dims["ly"]
+        xy = lmp.extract_box()[2]
+        xz = lmp.extract_box()[3]
+        yz = lmp.extract_box()[4]
+        print(xy, xz, yz)
+        lmp.commands_string("""
             clear
             box tilt large
             read_restart restart.equil
@@ -91,48 +99,29 @@ def calculate_elastic_constants_lammps_api():
         deltaxz = -up * xz
         deltayz = -up * yz  # [cite: 5]
         if dir_val == 1:
-            lmp.commands(
+            lmp.command(
                 f"change_box all x delta 0 {delta} xy delta {deltaxy} xz delta {deltaxz} remap units box"
             )
         elif dir_val == 2:
-            lmp.commands(
+            lmp.command(
                 f"change_box all y delta 0 {delta} yz delta {deltayz} remap units box"
             )
         elif dir_val == 3:
-            lmp.commands(f"change_box all z delta 0 {delta} remap units box")
+            lmp.command(f"change_box all z delta 0 {delta} remap units box")
         elif dir_val == 4:
-            lmp.commands(f"change_box all yz delta {delta} remap units box")
+            lmp.command(f"change_box all yz delta {delta} remap units box")
         elif dir_val == 5:
-            lmp.commands(f"change_box all xz delta {delta} remap units box")
+            lmp.command(f"change_box all xz delta {delta} remap units box")
         elif dir_val == 6:
-            lmp.commands(
-                f"change_box all xy delta {delta} remap units box"
-            )  # [cite: 6]
-        lmp.commands(f"minimize {etol} {ftol} {maxiter} {maxeval}")
-        stress_tensor_neg = lmp.extract_box()[-1]  # Extract the full stress tensor
-        pxx1_neg, pyy1_neg, pzz1_neg = (
-            stress_tensor_neg[0],
-            stress_tensor_neg[1],
-            stress_tensor_neg[2],
-        )
-        pyz1_neg, pxz1_neg, pxy1_neg = (
-            stress_tensor_neg[3],
-            stress_tensor_neg[4],
-            stress_tensor_neg[5],
-        )
-
-        # Compute elastic constant components C_i_neg (from in.elastic, using d1..d6 logic)
-        # d_i = -(P_i_1 - P_i_0) / (delta / len0) * cfac
-        # P_i = (pxx, pyy, pzz, pyz, pxz, pxy)
-
+            lmp.command(f"change_box all xy delta {delta} remap units box")  # [cite: 6]
+        lmp.command(f"minimize {etol} {ftol} {maxiter} {maxeval}")
+        pressure_negative = extract_pressure(lmp)
         strain = delta / len0
-        C_neg[dir_val][0] = -(pxx1_neg - pxx0) / strain * cfac
-        C_neg[dir_val][1] = -(pyy1_neg - pyy0) / strain * cfac
-        C_neg[dir_val][2] = -(pzz1_neg - pzz0) / strain * cfac
-        C_neg[dir_val][3] = -(pyz1_neg - pyz0) / strain * cfac
-        C_neg[dir_val][4] = -(pxz1_neg - pxz0) / strain * cfac
-        C_neg[dir_val][5] = -(pxy1_neg - pxy0) / strain * cfac
-        lmp.commands("""
+        for i, key in enumerate(PRESSURE_COMPONENTS):
+            C_neg[dir_val][i] = (
+                -(pressure_negative[key] - pressure_0[key]) / strain * cfac
+            )
+        lmp.commands_string("""
             clear
             box tilt large
             read_restart restart.equil
@@ -143,47 +132,32 @@ def calculate_elastic_constants_lammps_api():
         deltaxz = up * xz
         deltayz = up * yz
         if dir_val == 1:
-            lmp.commands(
+            lmp.command(
                 f"change_box all x delta 0 {delta} xy delta {deltaxy} xz delta {deltaxz} remap units box"
             )  # [cite: 7]
         elif dir_val == 2:
-            lmp.commands(
+            lmp.command(
                 f"change_box all y delta 0 {delta} yz delta {deltayz} remap units box"
             )
         elif dir_val == 3:
-            lmp.commands(f"change_box all z delta 0 {delta} remap units box")
+            lmp.command(f"change_box all z delta 0 {delta} remap units box")
         elif dir_val == 4:
-            lmp.commands(f"change_box all yz delta {delta} remap units box")
+            lmp.command(f"change_box all yz delta {delta} remap units box")
         elif dir_val == 5:
-            lmp.commands(f"change_box all xz delta {delta} remap units box")
+            lmp.command(f"change_box all xz delta {delta} remap units box")
         elif dir_val == 6:
-            lmp.commands(
-                f"change_box all xy delta {delta} remap units box"
-            )  # [cite: 8]
-        lmp.commands(f"minimize {etol} {ftol} {maxiter} {maxeval}")
-        stress_tensor_pos = lmp.extract_box()[-1]
-        pxx1_pos, pyy1_pos, pzz1_pos = (
-            stress_tensor_pos[0],
-            stress_tensor_pos[1],
-            stress_tensor_pos[2],
-        )
-        pyz1_pos, pxz1_pos, pxy1_pos = (
-            stress_tensor_pos[3],
-            stress_tensor_pos[4],
-            stress_tensor_pos[5],
-        )
+            lmp.command(f"change_box all xy delta {delta} remap units box")  # [cite: 8]
+        lmp.command(f"minimize {etol} {ftol} {maxiter} {maxeval}")
+        pressure_postive = extract_pressure(lmp)
         strain = delta / len0
-        C_pos[dir_val][0] = -(pxx1_pos - pxx0) / strain * cfac
-        C_pos[dir_val][1] = -(pyy1_pos - pyy0) / strain * cfac
-        C_pos[dir_val][2] = -(pzz1_pos - pzz0) / strain * cfac
-        C_pos[dir_val][3] = -(pyz1_pos - pyz0) / strain * cfac
-        C_pos[dir_val][4] = -(pxz1_pos - pxz0) / strain * cfac
-        C_pos[dir_val][5] = -(pxy1_pos - pxy0) / strain * cfac
+        for i, key in enumerate(PRESSURE_COMPONENTS):
+            C_pos[dir_val][i] = (
+                -(pressure_postive[key] - pressure_0[key]) / strain * cfac
+            )
     C_matrix = np.zeros((6, 6))
     for dir_val in range(1, 7):
         for i in range(6):
             C_matrix[i, dir_val - 1] = 0.5 * (C_neg[dir_val][i] + C_pos[dir_val][i])
-    # C_ij_all = 0.5 * (C_ij + C_ji)
     C_all = np.copy(C_matrix)
     C11all = C_all[0, 0]
     C22all = C_all[1, 1]
