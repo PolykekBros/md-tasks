@@ -6,146 +6,122 @@ PRESSURE_COMPONENTS = ["pxx", "pyy", "pzz", "pyz", "pxz", "pxy"]
 BOX_COMPONENTS = ["lx", "ly", "lz"]
 
 
-def extract_pressure(lmp):
-    return {key: lmp.get_thermo(key) for key in PRESSURE_COMPONENTS}
+def extract_thermo(lmp, keys):
+    return {key: lmp.get_thermo(key) for key in keys}
 
 
-def setup_potential(lmp, dmax):
+def setup_potential(lmp, params):
     lmp.commands_string(f"""
         pair_style    sw
         pair_coeff    * * Si.sw Si
         neighbor      1.0 nsq
         neigh_modify  once no every 1 delay 0 check yes
         min_style     cg
-        min_modify    dmax {dmax} line quadratic
+        min_modify    dmax {params["dmax"]} line quadratic
         thermo		  1
         thermo_style  custom step temp pe press pxx pyy pzz pxy pxz pyz lx ly lz vol
         thermo_modify norm no
     """)
 
 
+def displace(lmp, params, box_dims, initial_pressure, dir_val, sign):
+    dir_val += 1
+    if dir_val == 1:
+        len0 = box_dims["lx"]
+    elif dir_val == 2 or dir_val == 6:
+        len0 = box_dims["ly"]
+    elif dir_val == 3 or dir_val == 4 or dir_val == 5:
+        len0 = box_dims["lz"]
+    (xy, xz, yz) = lmp.extract_box()[2:5]
+    print(xy, xz, yz)
+    lmp.commands_string("""
+        clear
+        box tilt large
+        read_restart restart.equil
+    """)
+    setup_potential(lmp, params)
+    print(f"  Negative deformation ($\epsilon_{{Voigt}} = -{params['up']}$)")
+    d = -params["up"] * len0
+    (d_xy, d_xz, d_yz) = tuple(map(lambda x: sign * params["up"] * x, (xy, xz, yz)))
+    if dir_val == 1:
+        lmp.command(
+            f"change_box all x delta 0 {d} xy delta {d_xy} xz delta {d_xz} remap units box"
+        )
+    elif dir_val == 2:
+        lmp.command(f"change_box all y delta 0 {d} yz delta {d_yz} remap units box")
+    elif dir_val == 3:
+        lmp.command(f"change_box all z delta 0 {d} remap units box")
+    elif dir_val == 4:
+        lmp.command(f"change_box all yz delta {d} remap units box")
+    elif dir_val == 5:
+        lmp.command(f"change_box all xz delta {d} remap units box")
+    elif dir_val == 6:
+        lmp.command(f"change_box all xy delta {d} remap units box")
+    lmp.command(
+        f"minimize {params['etol']} {params['ftol']} {params['maxiter']} {params['maxeval']}"
+    )
+    pressure_postive = extract_thermo(lmp, PRESSURE_COMPONENTS)
+    strain = d / len0
+    return [
+        -(pressure_postive[key] - initial_pressure[key]) / strain * params["cfac"]
+        for key in PRESSURE_COMPONENTS
+    ]
+
+
 def calculate_elastic_constants_lammps_api():
-    up = 1.0e-6
-    atomjiggle = 1.0e-5
-    cfac = 1.0e-4
-    etol = 0.0
-    ftol = 1.0e-10
-    maxiter = 100
-    maxeval = 1000
-    dmax = 1.0e-2
-    a = 5.43
+    params = {
+        "up": 1.0e-6,
+        "atomjiggle": 1.0e-5,
+        "cfac": 1.0e-4,
+        "etol": 0.0,
+        "ftol": 1.0e-10,
+        "maxiter": 100,
+        "maxeval": 1000,
+        "dmax": 1.0e-2,
+        "a": 5.43,
+    }
     lmp = lammps()
     lmp.commands_string(f"""
         units        metal
         boundary     p p p
-        lattice      diamond {a}
+        lattice      diamond {params["a"]}
         region       box prism 0 2.0 0 3.0 0 4.0 0.0 0.0 0.0
         create_box   1 box
         create_atoms 1 box
         mass         1 1.0e-20
     """)
-    setup_potential(lmp, dmax)
+    setup_potential(lmp, params)
     print("--- 1. Initial State Minimization ---")
     lmp.commands_string(f"""
         fix 3 all box/relax  aniso 0.0
-        minimize {etol} {ftol} {maxiter} {maxeval}
+        minimize {params["etol"]} {params["ftol"]} {params["maxiter"]} {params["maxeval"]}
         unfix 3
     """)
-    pressure_0 = extract_pressure(lmp)
-    print(pressure_0)
-    box_dims = {key: lmp.get_thermo(key) for key in BOX_COMPONENTS}
+    pressure_initial = extract_thermo(lmp, PRESSURE_COMPONENTS)
+    print(pressure_initial)
+    box_dims = extract_thermo(lmp, BOX_COMPONENTS)
     print(box_dims)
     lmp.command("write_restart restart.equil")
     lmp.command(
-        f"displace_atoms all random {atomjiggle} {atomjiggle} {atomjiggle} 87287 units box"
+        f"displace_atoms all random {params['atomjiggle']} {params['atomjiggle']} {params['atomjiggle']} 87287 units box"
     )
-    C_neg = {i: np.zeros(6) for i in range(1, 7)}
-    C_pos = {i: np.zeros(6) for i in range(1, 7)}
-    for dir_val in range(1, 7):
-        print(f"\n--- 2. Perturbation Cycle for dir={dir_val} ---")
-        if dir_val == 1:
-            len0 = box_dims["lx"]
-        elif dir_val == 2:
-            len0 = box_dims["ly"]
-        elif dir_val == 3 or dir_val == 4 or dir_val == 5:
-            len0 = box_dims["lz"]
-        elif dir_val == 6:
-            len0 = box_dims["ly"]
-        xy = lmp.extract_box()[2]
-        xz = lmp.extract_box()[3]
-        yz = lmp.extract_box()[4]
-        print(xy, xz, yz)
-        lmp.commands_string("""
-            clear
-            box tilt large
-            read_restart restart.equil
-        """)
-        setup_potential(lmp, dmax)
-        print(f"  Negative deformation ($\epsilon_{{Voigt}} = -{up}$)")
-        delta = -up * len0
-        deltaxy = -up * xy
-        deltaxz = -up * xz
-        deltayz = -up * yz  # [cite: 5]
-        if dir_val == 1:
-            lmp.command(
-                f"change_box all x delta 0 {delta} xy delta {deltaxy} xz delta {deltaxz} remap units box"
-            )
-        elif dir_val == 2:
-            lmp.command(
-                f"change_box all y delta 0 {delta} yz delta {deltayz} remap units box"
-            )
-        elif dir_val == 3:
-            lmp.command(f"change_box all z delta 0 {delta} remap units box")
-        elif dir_val == 4:
-            lmp.command(f"change_box all yz delta {delta} remap units box")
-        elif dir_val == 5:
-            lmp.command(f"change_box all xz delta {delta} remap units box")
-        elif dir_val == 6:
-            lmp.command(f"change_box all xy delta {delta} remap units box")  # [cite: 6]
-        lmp.command(f"minimize {etol} {ftol} {maxiter} {maxeval}")
-        pressure_negative = extract_pressure(lmp)
-        strain = delta / len0
-        for i, key in enumerate(PRESSURE_COMPONENTS):
-            C_neg[dir_val][i] = (
-                -(pressure_negative[key] - pressure_0[key]) / strain * cfac
-            )
-        lmp.commands_string("""
-            clear
-            box tilt large
-            read_restart restart.equil
-        """)
-        setup_potential(lmp, dmax)
-        delta = up * len0
-        deltaxy = up * xy
-        deltaxz = up * xz
-        deltayz = up * yz
-        if dir_val == 1:
-            lmp.command(
-                f"change_box all x delta 0 {delta} xy delta {deltaxy} xz delta {deltaxz} remap units box"
-            )  # [cite: 7]
-        elif dir_val == 2:
-            lmp.command(
-                f"change_box all y delta 0 {delta} yz delta {deltayz} remap units box"
-            )
-        elif dir_val == 3:
-            lmp.command(f"change_box all z delta 0 {delta} remap units box")
-        elif dir_val == 4:
-            lmp.command(f"change_box all yz delta {delta} remap units box")
-        elif dir_val == 5:
-            lmp.command(f"change_box all xz delta {delta} remap units box")
-        elif dir_val == 6:
-            lmp.command(f"change_box all xy delta {delta} remap units box")  # [cite: 8]
-        lmp.command(f"minimize {etol} {ftol} {maxiter} {maxeval}")
-        pressure_postive = extract_pressure(lmp)
-        strain = delta / len0
-        for i, key in enumerate(PRESSURE_COMPONENTS):
-            C_pos[dir_val][i] = (
-                -(pressure_postive[key] - pressure_0[key]) / strain * cfac
-            )
+    C_neg = np.array(
+        [
+            displace(lmp, params, box_dims, pressure_initial, dir_val, -1.0)
+            for dir_val in range(6)
+        ]
+    )
+    C_pos = np.array(
+        [
+            displace(lmp, params, box_dims, pressure_initial, dir_val, 1.0)
+            for dir_val in range(6)
+        ]
+    )
+    print(C_neg.shape)
     C_matrix = np.zeros((6, 6))
-    for dir_val in range(1, 7):
+    for dir_val in range(6):
         for i in range(6):
-            C_matrix[i, dir_val - 1] = 0.5 * (C_neg[dir_val][i] + C_pos[dir_val][i])
+            C_matrix[i, dir_val] = 0.5 * (C_neg[dir_val, i] + C_pos[dir_val, i])
     C_all = np.copy(C_matrix)
     C11all = C_all[0, 0]
     C22all = C_all[1, 1]
