@@ -33,7 +33,6 @@ def displace(lmp, params, box_dims, initial_pressure, dir_val, sign):
     elif dir_val == 3 or dir_val == 4 or dir_val == 5:
         len0 = box_dims["lz"]
     (xy, xz, yz) = lmp.extract_box()[2:5]
-    print(xy, xz, yz)
     lmp.commands_string("""
         clear
         box tilt large
@@ -60,15 +59,15 @@ def displace(lmp, params, box_dims, initial_pressure, dir_val, sign):
     lmp.command(
         f"minimize {params['etol']} {params['ftol']} {params['maxiter']} {params['maxeval']}"
     )
-    pressure_postive = extract_thermo(lmp, PRESSURE_COMPONENTS)
+    pressure = extract_thermo(lmp, PRESSURE_COMPONENTS)
     strain = d / len0
     return [
-        -(pressure_postive[key] - initial_pressure[key]) / strain * params["cfac"]
+        -(pressure[key] - initial_pressure[key]) / strain * params["cfac"]
         for key in PRESSURE_COMPONENTS
     ]
 
 
-def calculate_elastic_constants_lammps_api():
+def calculate_elastic_constants():
     params = {
         "up": 1.0e-6,
         "atomjiggle": 1.0e-5,
@@ -98,9 +97,7 @@ def calculate_elastic_constants_lammps_api():
         unfix 3
     """)
     pressure_initial = extract_thermo(lmp, PRESSURE_COMPONENTS)
-    print(pressure_initial)
     box_dims = extract_thermo(lmp, BOX_COMPONENTS)
-    print(box_dims)
     lmp.command("write_restart restart.equil")
     lmp.command(
         f"displace_atoms all random {params['atomjiggle']} {params['atomjiggle']} {params['atomjiggle']} 87287 units box"
@@ -117,36 +114,13 @@ def calculate_elastic_constants_lammps_api():
             for dir_val in range(6)
         ]
     )
-    print(C_neg.shape)
-    C_matrix = np.zeros((6, 6))
-    for dir_val in range(6):
-        for i in range(6):
-            C_matrix[i, dir_val] = 0.5 * (C_neg[dir_val, i] + C_pos[dir_val, i])
-    C_all = np.copy(C_matrix)
-    C11all = C_all[0, 0]
-    C22all = C_all[1, 1]
-    C33all = C_all[2, 2]
-    C44all = C_all[3, 3]
-    C55all = C_all[4, 4]
-    C66all = C_all[5, 5]
-    C12all = 0.5 * (C_all[0, 1] + C_all[1, 0])
-    C13all = 0.5 * (C_all[0, 2] + C_all[2, 0])
-    C23all = 0.5 * (C_all[1, 2] + C_all[2, 1])
-    C14all = 0.5 * (C_all[0, 3] + C_all[3, 0])
-    C15all = 0.5 * (C_all[0, 4] + C_all[4, 0])
-    C16all = 0.5 * (C_all[0, 5] + C_all[5, 0])
-    C24all = 0.5 * (C_all[1, 3] + C_all[3, 1])
-    C25all = 0.5 * (C_all[1, 4] + C_all[4, 1])
-    C26all = 0.5 * (C_all[1, 5] + C_all[5, 1])
-    C34all = 0.5 * (C_all[2, 3] + C_all[3, 2])
-    C35all = 0.5 * (C_all[2, 4] + C_all[4, 2])
-    C36all = 0.5 * (C_all[2, 5] + C_all[5, 2])
-    C45all = 0.5 * (C_all[3, 4] + C_all[4, 3])
-    C46all = 0.5 * (C_all[3, 5] + C_all[5, 3])
-    C56all = 0.5 * (C_all[4, 5] + C_all[5, 4])
-    C11cubic = (C11all + C22all + C33all) / 3.0
-    C12cubic = (C12all + C13all + C23all) / 3.0
-    C44cubic = (C44all + C55all + C66all) / 3.0
+    C_matrix = 0.5 * (C_neg + C_pos).T
+    C_diag = np.diag(C_matrix)
+    print(C_diag)
+    C_matrix = 0.5 * (C_matrix + C_matrix.T)
+    C11cubic = np.average(C_diag[0:3])
+    C12cubic = (C_matrix[0, 1] + C_matrix[0, 2] + C_matrix[1, 2]) / 3.0
+    C44cubic = np.average(C_diag[3:6])
     bulkmodulus = (C11cubic + 2 * C12cubic) / 3.0
     shearmodulus1 = C44cubic
     shearmodulus2 = (C11cubic - C12cubic) / 2.0
@@ -154,15 +128,16 @@ def calculate_elastic_constants_lammps_api():
     print("\n=========================================")
     print("Components of the Elastic Constant Tensor")
     print("=========================================")
-    print(f"Elastic Constant C11all = {C11all:.4f}")
-    print(f"Elastic Constant C22all = {C22all:.4f}")
-    print(f"Elastic Constant C33all = {C33all:.4f}")
-    print(f"Elastic Constant C12all = {C12all:.4f}")
-    print(f"Elastic Constant C13all = {C13all:.4f}")
-    print(f"Elastic Constant C23all = {C23all:.4f}")
-    print(f"Elastic Constant C44all = {C44all:.4f}")
-    print(f"Elastic Constant C55all = {C55all:.4f}")
-    print(f"Elastic Constant C66all = {C66all:.4f}")
+    for i in range(3):
+        print(f"Elastic Constant C{i + 1}{i + 1}all = {C_matrix[i, i]:.4f}")
+    for i in range(2):
+        for j in range(i + 1, 3):
+            print(f"Elastic Constant C{i + 1}{j + 1}all = {C_matrix[i, j]:.4f}")
+    for i in range(3, 6):
+        print(f"Elastic Constant C{i + 1}{i + 1}all = {C_matrix[i, i]:.4f}")
+    for i in range(5):
+        for j in range(max(i + 1, 3), 6):
+            print(f"Elastic Constant C{i + 1}{j + 1}all = {C_matrix[i, j]:.4f}")
     print("\n=========================================")
     print("Average properties for a cubic crystal")
     print("=========================================")
@@ -174,9 +149,8 @@ def calculate_elastic_constants_lammps_api():
         "\n(Note: For Stillinger-Weber silicon, analytical results are C11=151.4 GPa, C12=76.4 GPa, C44=56.4 GPa) [cite: 27]"
     )
     lmp.close()
-    return C_all
+    return C_matrix
 
 
 if __name__ == "__main__":
-    final_C_matrix = calculate_elastic_constants_lammps_api()
-    print(final_C_matrix)
+    final_C_matrix = calculate_elastic_constants()
