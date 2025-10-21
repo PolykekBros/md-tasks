@@ -21,19 +21,16 @@ velocity all create 1e-6 4928459 rot yes dist gaussian
 neighbor        2.0 bin
 
 timestep 0.001
-thermo 10000
+thermo 100
 thermo_style custom step pe etotal press temp
 
-# --------------------- STAGE 1: EQUILIBRATION ---------------------
-fix 1 all nvt temp 1e-6 120.0 1000.0
-run 10000000
-
-# --------------------- STAGE 2: COOLING (Freezing) ---------------------
-
-unfix 1
-fix   1 all nvt temp 120.0 50.0 1000.0
-
-# --- Simulation Settings ---
 dump during all atom 1000 dump.during
 
-run 10000000
+# --- EQUILIBRATION (gas phase) ---
+fix 1 all npt temp 300.0 300.0 $(100.0*dt) iso 0.0 0.0 $(1000.0*dt)
+run 100000
+
+# --- COOLING (Condensation) ---
+unfix 1
+fix 1 all npt temp 300.0 90.0 $(100.0*dt) iso 0.0 0.0 $(1000.0*dt)
+run 100000
