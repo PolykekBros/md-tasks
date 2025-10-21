@@ -15,7 +15,7 @@ pair_style      lj/cut 2.5
 # Argon: epsilon=0.01032, sigma=3.405
 pair_coeff      1 1 0.01032 3.405 2.5
 minimize 1.0e-4 1.0e-6 100 1000
-velocity all create 1e-6 4928459 rot yes dist gaussian
+velocity all create 300 4928459 rot yes dist gaussian
 
 # --- Neighbor list ---
 neighbor        2.0 bin
@@ -24,13 +24,22 @@ timestep 0.001
 thermo 100
 thermo_style custom step pe etotal press temp
 
-dump during all atom 1000 dump.during
+compute ke all ke/atom
+dump during all custom 1000 dump.during id type x y z vx vy vz c_ke
 
 # --- EQUILIBRATION (gas phase) ---
-fix 1 all npt temp 300.0 300.0 $(100.0*dt) iso 0.0 0.0 $(1000.0*dt)
+fix 1 all npt temp 300.0 300.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
 run 100000
 
 # --- COOLING (Condensation) ---
 unfix 1
-fix 1 all npt temp 300.0 90.0 $(100.0*dt) iso 0.0 0.0 $(1000.0*dt)
+fix 1 all npt temp 100.0 50.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
+run 100000
+
+# --- COOLING (Crystallization) ---
+unfix 1
+fix 1 all npt temp 70.0 1.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
+run 100000
+unfix 1
+fix 1 all npt temp 1.0 1.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
 run 100000
