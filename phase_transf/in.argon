@@ -31,19 +31,8 @@ dump during all custom 10000 dump.during id type x y z vx vy vz c_ke
 fix 1 all npt temp 200.0 300.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
 run 100000
 
+# --- COOLING ---
 unfix 1
-fix 1 all npt temp 200.0 1e-6 $(500.0*dt) iso 3.0 3.0 $(1000.0*dt)
+fix 1 all npt temp 300.0 1e-6 $(500.0*dt) iso 3.0 3.0 $(1000.0*dt)
 run 10000000
 
-# --- COOLING (Condensation) ---
-# unfix 1
-# fix 1 all npt temp 100.0 50.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
-# run 100000
-
-# --- COOLING (Crystallization) ---
-# unfix 1
-# fix 1 all npt temp 70.0 1.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
-# run 100000
-# unfix 1
-# fix 1 all npt temp 1.0 1.0 $(10000.0*dt) iso 3.0 3.0 $(1000.0*dt)
-# run 100000
