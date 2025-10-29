@@ -5,24 +5,31 @@ boundary        p p p
 atom_style      atomic 
 
 # --- Atom Information ---
-region          box block 0 80 0 80 0 80
+region          box block 0 160 0 160 0 160
 create_box      1 box
-create_atoms    1 random 200 12345 NULL 
+create_atoms    1 random 1600 12345 NULL 
 mass            1 39.95 
 
 # --- Lennard-Jones Potential ---
-pair_style      lj/cut 2.5
+pair_style      lj/cut 10.0
 # Argon: epsilon=0.01032, sigma=3.405
-pair_coeff      1 1 0.01032 3.405 2.5
+pair_coeff      1 1 0.01032 3.405 10.0
 minimize 1.0e-4 1.0e-6 100 1000
 velocity all create 200 4928459 rot yes dist gaussian
 
 # --- Neighbor list ---
 neighbor        2.0 bin
 
+# compute total atoms and box volume
+variable Natoms equal count(all)
+variable V equal vol
+
+# number density (atoms per unit volume)
+variable rho equal v_Natoms/v_V
+
 timestep 0.001
 thermo 100
-thermo_style custom step pe etotal press temp
+thermo_style custom step pe etotal press temp v_rho
 
 compute ke all ke/atom
 dump during all custom 10000 dump.during id type x y z vx vy vz c_ke
